@@ -10,25 +10,18 @@ from playwright.sync_api import sync_playwright, Page
 # --- Paths adapted for Docker Volumes ---
 INPUT_CSV = "leads.csv"
 OUTPUT_CSV = "/app/output/linkedin_results.csv"
-SCREENSHOT_DIR = "/app/output/screenshots"
 
 def is_logged_in(page: Page) -> bool:
     blocked = ("linkedin.com/login", "linkedin.com/checkpoint", "linkedin.com/authwall")
     return not any(x in page.url for x in blocked)
 
-def safe_name(profile_url):
-    return profile_url.rstrip("/").split("/")[-1].replace(":", "_")
-
-def check_premium_and_activity(page: Page, profile_url: str, activity_url: str) -> tuple[str, str]:
+def check_premium_and_activity(page: Page, activity_url: str) -> tuple[str, str]:
     page.goto(activity_url, wait_until="domcontentloaded", timeout=30000)
 
     if "login" in page.url.lower() or "challenge" in page.url.lower():
         raise Exception(f"LinkedIn killed session: {page.url}")
 
     page.wait_for_timeout(random.randint(3000, 7000))
-
-    os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-    page.screenshot(path=f"{SCREENSHOT_DIR}/{safe_name(profile_url)}_activity.png", full_page=True)
     print(f"Current URL after goto: {page.url}")
 
     premium_svg = page.locator('svg[aria-label*="Premium member"]')
@@ -126,8 +119,6 @@ def main():
                 sleep(1)
             except Exception as e:
                 print(f"❌ Target input fields missing. Current URL: {page.url}")
-                os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-                page.screenshot(path=f"{SCREENSHOT_DIR}/login_failure.png")
                 context.close()
                 sys.exit(1)
 
@@ -138,11 +129,7 @@ def main():
 
             if "checkpoint" in page.url or "challenge" in page.url:
                 print("\n⚠️ CAPTCHA / 2FA DETECTED IN DOCKER!")
-                print("Taking a screenshot of the challenge...")
-                os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-                page.screenshot(path=f"{SCREENSHOT_DIR}/captcha_challenge.png", full_page=True)
-                print("Since you are in Docker, you cannot easily complete this visually.")
-                print("Check the 'output/screenshots' folder on your host machine to see what happened.")
+                print("Since you are in Docker and running headless, you cannot complete this visually.")
                 context.close()
                 sys.exit(1)
 
@@ -157,7 +144,7 @@ def main():
         for profile_url, activity_url in zip(profile_urls, activity_urls):
             try:
                 print(f"\nProcessing: {profile_url}")
-                premium_status, activity_time = check_premium_and_activity(page, profile_url, activity_url)
+                premium_status, activity_time = check_premium_and_activity(page, activity_url)
 
                 print(f"-> Premium: {premium_status}")
                 print(f"-> Activity: {activity_time}")
