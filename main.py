@@ -109,7 +109,7 @@ def main():
         else:
             print("Waiting for credentials fields to appear...")
             try:
-                username_field = page.locator("input[autocomplete='username webauthn']").last
+                username_field = page.locator("input[autocomplete*='username']").last
                 username_field.wait_for(state="visible", timeout=10000)
                 username_field.fill(args.username)
                 sleep(1.2)
