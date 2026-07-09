@@ -5,7 +5,7 @@ import csv
 import random
 import pandas as pd
 from time import sleep
-from playwright.sync_api import sync_playwright, Page
+from playwright.sync_api import sync_playwright, Page, BrowserContext
 
 # --- Paths adapted for Docker Volumes ---
 INPUT_CSV = "leads.csv"
@@ -53,6 +53,14 @@ def check_premium_and_activity(page: Page, activity_url: str) -> tuple[str, str]
         activity_time = "No activity"
 
     return premium_status, activity_time
+
+def recycle_page(context: BrowserContext, old_page: Page) -> Page:
+    try:
+        if not old_page.is_closed():
+            old_page.close()
+    except Exception:
+        pass
+    return context.new_page()
 
 def create_output_csv():
     os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
@@ -167,7 +175,8 @@ def main():
             print("\n🎉 Login successful! Session saved to mounted volume.")
 
         print("\n🚀 Starting the profile scanning process...")
-        for profile_url, activity_url in zip(profile_urls, activity_urls):
+        PAGE_RECYCLE_EVERY = 10
+        for idx, (profile_url, activity_url) in enumerate(zip(profile_urls, activity_urls), start=1):
             try:
                 print(f"\nProcessing: {profile_url}")
                 premium_status, activity_time = check_premium_and_activity(page, activity_url)
@@ -177,10 +186,27 @@ def main():
 
                 append_result(profile_url, premium_status, activity_time)
                 print("Status saved.")
-                
+
             except Exception as e:
                 print(f"❌ Failed to process profile: {profile_url}")
                 print(f"Reason: {e}")
+
+                if page.is_closed() or "crash" in str(e).lower():
+                    print("[recovery] Page crashed, opening a fresh page from the same session and retrying once...")
+                    page = recycle_page(context, page)
+                    try:
+                        premium_status, activity_time = check_premium_and_activity(page, activity_url)
+                        print(f"-> Premium: {premium_status}")
+                        print(f"-> Activity: {activity_time}")
+                        append_result(profile_url, premium_status, activity_time)
+                        print("Status saved (after recovery).")
+                    except Exception as e2:
+                        print(f"❌ Retry after recovery also failed: {profile_url}")
+                        print(f"Reason: {e2}")
+
+            if idx % PAGE_RECYCLE_EVERY == 0:
+                print(f"[maintenance] Recycling page after {idx} profiles to avoid memory buildup...")
+                page = recycle_page(context, page)
 
         context.close()
     print("\n✅ Run completed successfully.")
