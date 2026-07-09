@@ -142,7 +142,14 @@ def main():
             print("Submitting login form...")
             submit_btn = page.locator("button[type='submit'], button:has-text('Sign in')").last
             submit_btn.click()
-            sleep(5)
+
+            # First-time logins on a fresh profile trigger extra device-verification
+            # redirects that take noticeably longer than repeat logins. Poll instead
+            # of a fixed sleep so we don't bail out before the redirect settles.
+            for _ in range(30):
+                if "linkedin.com/login" not in page.url:
+                    break
+                page.wait_for_timeout(1000)
 
             if "checkpoint" in page.url or "challenge" in page.url:
                 print("\n⚠️ CAPTCHA / 2FA DETECTED IN DOCKER!")
