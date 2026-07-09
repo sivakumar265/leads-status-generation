@@ -10,10 +10,27 @@ from playwright.sync_api import sync_playwright, Page
 # --- Paths adapted for Docker Volumes ---
 INPUT_CSV = "leads.csv"
 OUTPUT_CSV = "/app/output/linkedin_results.csv"
+DEBUG_DIR = "/app/output/debug"
 
 def is_logged_in(page: Page) -> bool:
     blocked = ("linkedin.com/login", "linkedin.com/checkpoint", "linkedin.com/authwall")
     return not any(x in page.url for x in blocked)
+
+def dump_debug_state(page: Page, label: str):
+    os.makedirs(DEBUG_DIR, exist_ok=True)
+    page.screenshot(path=f"{DEBUG_DIR}/{label}.png", full_page=True)
+    with open(f"{DEBUG_DIR}/{label}.html", "w", encoding="utf-8") as f:
+        f.write(page.content())
+    print(f"[debug] Saved screenshot + HTML for '{label}' -> {DEBUG_DIR}")
+    for sel in ["[role='alert']", ".alert", "[id*='error']", "[class*='error']"]:
+        loc = page.locator(sel)
+        for i in range(loc.count()):
+            try:
+                text = loc.nth(i).inner_text().strip()
+                if text:
+                    print(f"[debug] {sel} -> {text!r}")
+            except Exception:
+                pass
 
 def check_premium_and_activity(page: Page, activity_url: str) -> tuple[str, str]:
     page.goto(activity_url, wait_until="domcontentloaded", timeout=30000)
@@ -130,11 +147,13 @@ def main():
             if "checkpoint" in page.url or "challenge" in page.url:
                 print("\n⚠️ CAPTCHA / 2FA DETECTED IN DOCKER!")
                 print("Since you are in Docker and running headless, you cannot complete this visually.")
+                dump_debug_state(page, "checkpoint")
                 context.close()
                 sys.exit(1)
 
             if not is_logged_in(page):
                 print(f"\n❌ Login failed. Ended up on: {page.url}")
+                dump_debug_state(page, "login_failure")
                 context.close()
                 sys.exit(1)
             
